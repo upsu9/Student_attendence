@@ -334,9 +334,11 @@ namespace Student_attendence.Controllers
             {
                 TimeZoneInfo indiaTimeZone = TimeZoneInfo.FindSystemTimeZoneById("India Standard Time");
                 DateTime indiaTime = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, indiaTimeZone);
-                DateTime dateNow = DateTime.ParseExact(markRegAttendence.date, "MM/dd/yyyy", CultureInfo.InvariantCulture);
-                DateTime dateOnly = dateNow.Date;
-                if(dateOnly > indiaTime.Date)
+                //DateTime dateNow = DateTime.ParseExact(markRegAttendence.date, "MM/dd/yyyy", CultureInfo.InvariantCulture);
+                DateTime dateTimeWithTime = DateTime.ParseExact(markRegAttendence.date, "yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
+                DateTime dateOnly = dateTimeWithTime.Date;
+
+                if (dateTimeWithTime > indiaTime)
                 {
                     response.IsSuccess = false;
                     response.ResponseMessage = "Future Attendence not allowed.";
@@ -351,7 +353,7 @@ namespace Student_attendence.Controllers
                 }
                 var checkIfUserMarkedAtSameTime = _db.RegisteredAttendenceData.Where(id => id.IsActive == IsActiveEnum.Active &&
                 id.DayStatus == (DayStatusEnum)Enum.Parse(typeof(DayStatusEnum), markRegAttendence.dayStatus) &&
-                id.StudentId == checkIfValidUser.StudentId && id.AttendenceDate == dateOnly).FirstOrDefault();
+                id.StudentId == checkIfValidUser.StudentId && id.AttendenceDate.Date == dateOnly).FirstOrDefault();
                 if (checkIfUserMarkedAtSameTime is not null)
                 {
                     response.IsSuccess = false;
@@ -360,7 +362,7 @@ namespace Student_attendence.Controllers
                 }
                 RegisteredAttendence postAttendence = new RegisteredAttendence();
                 postAttendence.StudentId = checkIfValidUser.StudentId;
-                postAttendence.AttendenceDate = dateOnly;
+                postAttendence.AttendenceDate = dateTimeWithTime;
                 postAttendence.CreatedAt = indiaTime;
                 postAttendence.CreatedBy = userId;
                 postAttendence.DayStatus = (DayStatusEnum)Enum.Parse(typeof(DayStatusEnum), markRegAttendence.dayStatus);
@@ -858,6 +860,67 @@ namespace Student_attendence.Controllers
                     EveningCount = eveningData,
                     Total = total
                 };
+                return response;
+            }
+        }
+
+        [Authorize]
+        [HttpGet]
+        [Route("/phase-wise-data")]
+        public async Task<Response> GetPhaseWiseData(string startDate, string endDate)
+        {
+            var response = new Response();
+            DateTime startDateTimeWithTime = DateTime.ParseExact(startDate, "yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
+            DateTime endDateTimeWithTime = DateTime.ParseExact(endDate, "yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
+
+            List<PhaseGender> alluserattendenceData = _db.RegisteredAttendenceData.Join(
+                                    _db.StudentMasterData,
+                                    t1 => t1.StudentId,
+                                    t2 => t2.StudentId,
+                                    (t1, t2) => new { Table1 = t1, Table2 = t2 }
+                                )
+                             .Where(user =>
+                             user.Table1.IsActive == IsActiveEnum.Active &&
+                             user.Table2.IsActive == IsActiveEnum.Active &&
+                             user.Table1.AttendenceDate >= startDateTimeWithTime && user.Table1.AttendenceDate
+                              < endDateTimeWithTime).Select(user =>
+                             new PhaseGender()
+                             {
+                                 Phase = user.Table2.Category.ToLower(),
+                                 Gender = user.Table2.Gender,
+                             }
+                             ).ToList();
+            if (!alluserattendenceData.Any())
+            {
+                response.IsSuccess = false;
+                response.ResponseMessage = "No user found.";
+                return response;
+            }
+            else
+            {
+                
+                var allPhaseData = new List<PhaseData>();
+                var result = alluserattendenceData
+                    .GroupBy(e => new { e.Phase, e.Gender })
+                  .Select(g
+                    => new
+                    {
+                        Phase = g.Key.Phase,
+                        Gender = g.Key.Gender,
+                        Count = g.Count()
+                    })
+                .GroupBy(d => d.Phase)
+                .Select(f => new
+                {
+                    Phase = f.Key,
+                    Boys = f.FirstOrDefault(p => p.Gender == Gender.Male)?.Count ?? 0,
+                    Girls = f.FirstOrDefault(p => p.Gender == Gender.Female)?.Count ?? 0,
+                    Total = f.Sum(h => h.Count)
+                });
+                response.IsSuccess = true;
+                response.ResponseMessage = "user Found";
+                response.Result = result;
+                
                 return response;
             }
         }

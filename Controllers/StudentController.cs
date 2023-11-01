@@ -72,7 +72,13 @@ namespace Student_attendence.Controllers
         [Route("/get-single-student-by-id")]
         public async Task<IActionResult> GetSingleStudentById(string uniqueId)
         {
-            return Ok(_db.StudentMasterData.Where(user => user.UniqueId.Trim().ToLower() == uniqueId.Trim().ToLower() && user.IsActive == IsActiveEnum.Active).Select(user => user).ToList());
+            var data =_db.StudentMasterData.Where(user => user.UniqueId.Trim().ToLower() == uniqueId.Trim().ToLower() && user.IsActive == IsActiveEnum.Active).FirstOrDefault();
+            if(data is null)
+            {
+                return NotFound();
+            }
+            data.Category = GetCategoryOnBirtheDate(data.BirthDate);
+            return Ok(data);
         }
 
         [Authorize]
@@ -130,6 +136,14 @@ namespace Student_attendence.Controllers
             {
                 response.IsSuccess = false;
                 response.ResponseMessage = "You dont have rights.";
+                response.Result = null;
+                return response;
+            }
+            var ifUserExist = _db.AdminUserData.FirstOrDefault(user => user.EmailId.Trim().ToLower() == adminUserData[0].EmailId.Trim().ToLower());
+            if (ifUserExist is not null || ifUserExist is not null && ifUserExist.UniqueId.ToLower() == adminUserData[0].UniqueId.Trim().ToLower())
+            {
+                response.IsSuccess = false;
+                response.ResponseMessage = "User already exist.";
                 response.Result = null;
                 return response;
             }
@@ -236,12 +250,20 @@ namespace Student_attendence.Controllers
                 userStatus = authData.UserStatus;
                 userId = authData.UserId;
             }
+            if (deleteUserId == userId)
+            {
+                response.IsSuccess = false;
+                response.ResponseMessage = "You cannot delete yourself.";
+                response.Result = null;
+                return response;
+            }
+            
             try
             {
                 AdminUser postNewAdminUser = new AdminUser();
                 TimeZoneInfo indiaTimeZone = TimeZoneInfo.FindSystemTimeZoneById("India Standard Time");
                 DateTime indiaTime = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, indiaTimeZone);
-                    var ifUserExist = _db.AdminUserData.FirstOrDefault(user => user.AdminUserId == userId && user.IsActive == IsActiveEnum.Active);
+                    var ifUserExist = _db.AdminUserData.FirstOrDefault(user => user.AdminUserId == deleteUserId && user.IsActive == IsActiveEnum.Active);
                     if (ifUserExist is null)
                     {
                         response.IsSuccess = false;
@@ -249,7 +271,14 @@ namespace Student_attendence.Controllers
                         response.Result = null;
                         return response;
                     }
-                    ifUserExist.UpdatedBy = userId;
+                if (ifUserExist.Status == AdminUserStatusEnum.Admin)
+                {
+                    response.IsSuccess = false;
+                    response.ResponseMessage = "You cannot delete Admin";
+                    response.Result = null;
+                    return response;
+                }
+                ifUserExist.UpdatedBy = userId;
                     ifUserExist.IsActive = IsActiveEnum.Inactive;
                     ifUserExist.UpdatedAt = indiaTime;
 
@@ -753,10 +782,6 @@ namespace Student_attendence.Controllers
                 return response;
             }
             var fetchuserattendenceData = new List<ExcelAllResponseModel>();
-            //var alluserattendenceData = (from t1 in _db.RegisteredAttendenceData
-            //                         join t2 in _db.StudentMasterData on t1.StudentId equals t2.StudentId
-            //                         where t1.IsActive == t2.IsActive
-            //                         select new { t1, t2 }).ToList();
             var alluserattendenceData = _db.RegisteredAttendenceData.Join(
                                     _db.StudentMasterData,
                                     t1 => t1.StudentId,
@@ -886,10 +911,11 @@ namespace Student_attendence.Controllers
                               < endDateTimeWithTime).Select(user =>
                              new PhaseGender()
                              {
-                                 Phase = user.Table2.Category.ToLower(),
+                                 Phase = GetCategoryOnBirtheDate(user.Table2.BirthDate),
                                  Gender = user.Table2.Gender,
                              }
                              ).ToList();
+
             if (!alluserattendenceData.Any())
             {
                 response.IsSuccess = false;
@@ -923,6 +949,36 @@ namespace Student_attendence.Controllers
                 
                 return response;
             }
+        }
+
+        public static string  GetCategoryOnBirtheDate (DateTime date)
+        {
+            string formattedDate = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
+            DateTime dateToInsert = DateTime.ParseExact(formattedDate, "yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture);
+            TimeSpan final = dateToInsert - date;
+            //Console.WriteLine(final);
+            //Console.WriteLine(final.TotalDays / 365.25);
+            //Console.WriteLine(final.TotalDays);
+            if (final.TotalDays / 365.25 < 3 && final.TotalDays > 90)
+            {
+                return "p1";
+            }
+            else
+            if (final.TotalDays / 365.25 < 6 && final.TotalDays / 365.25 > 3)
+            {
+                return "p2";
+            }
+            else
+            if (final.TotalDays / 365.25 < 8 && final.TotalDays / 365.25 > 6)
+            {
+                return "p3";
+            }
+            else
+            if (final.TotalDays / 365.25 < 12 && final.TotalDays / 365.25 > 8)
+            {
+                return "p4";
+            }
+            else return "";
         }
 
         [Authorize]
